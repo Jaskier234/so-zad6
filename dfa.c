@@ -7,12 +7,18 @@
 
 #define HELLO_MESSAGE "Hello, DFA!\n"
 
+const int CHAR_SIZE;
+char current_state;
+char accepting_states[CHAR_SIZE];
+char transition[CHAR_SIZE][CHAR_SIZE];
+
+const int BUF_SIZE = 4; // TODO Increase after tests
+char buffer[BUF_SIZE];
+
 /*
  * Function prototypes for the hello driver.
  */
-static int hello_open(devminor_t minor, int access, endpoint_t user_endpt);
-static int hello_close(devminor_t minor);
-static ssize_t hello_read(devminor_t minor, u64_t position, endpoint_t endpt,
+static ssize_t dfa_read(devminor_t minor, u64_t position, endpoint_t endpt,
     cp_grant_id_t grant, size_t size, int flags, cdev_id_t id);
 
 /* SEF functions and variables. */
@@ -24,32 +30,46 @@ static int lu_state_restore(void);
 /* Entry points to the hello driver. */
 static struct chardriver hello_tab =
 {
-    .cdr_read	= hello_read,
+    .cdr_read	= dfa_read,
 };
 
-static ssize_t hello_read(devminor_t UNUSED(minor), u64_t position,
+static ssize_t dfa_read(devminor_t UNUSED(minor), u64_t position,
     endpoint_t endpt, cp_grant_id_t grant, size_t size, int UNUSED(flags),
     cdev_id_t UNUSED(id))
 {
-    u64_t dev_size;
+//    u64_t dev_size;
     char *ptr;
     int ret;
-    char *buf = HELLO_MESSAGE;
+//    char *buf = HELLO_MESSAGE;
 
-    printf("hello_read()\n");
+//    printf("hello_read()\n");
 
     /* This is the total size of our device. */
-    dev_size = (u64_t) strlen(buf);
+//    dev_size = (u64_t) strlen(buf);
 
     /* Check for EOF, and possibly limit the read size. */
-    if (position >= dev_size) return 0;		/* EOF */
-    if (position + size > dev_size)
-        size = (size_t)(dev_size - position);	/* limit size */
+//    if (position >= dev_size) return 0;		/* EOF */
+//    if (position + size > dev_size)
+//        size = (size_t)(dev_size - position);	/* limit size */
 
-    /* Copy the requested part to the caller. */
-    ptr = buf + (size_t)position;
-    if ((ret = sys_safecopyto(endpt, grant, 0, (vir_bytes) ptr, size)) != OK)
-        return ret;
+    if (accepting_states[current_state] == 1) {
+        memset(buffer, 'Y', min(BUF_SIZE, size));
+    } else {
+        memset(buffer, 'N', min(BUF_SIZE, size));
+    }
+
+    int bytes_read = 0;
+
+    while (bytes_read < size) {
+        int chunk = min(BUF_SIZE, size - bytes_read);
+
+        /* Copy the requested part to the caller. */
+        ptr = buf + (size_t)position;
+        if ((ret = sys_safecopyto(endpt, grant, bytes_read, buffer, chunk)) != OK)
+            return ret;
+
+        bytes_read += chunk;
+    }
 
     /* Return the number of bytes read. */
     return size;
@@ -98,7 +118,11 @@ static void sef_local_startup()
 
 static int sef_cb_init(int type, sef_init_info_t *UNUSED(info))
 {
-/* Initialize the hello driver. */
+/* Initialize the dfa driver. */
+    current_state = 0;
+    memset(accepting_states, 0, CHAR_SIZE);
+    memset(transition, 0, CHAR_SIZE * CHAR_SIZE);
+
     int do_announce_driver = TRUE;
 
     open_counter = 0;
