@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <minix/ds.h>
+#include <minix/ioctl.h>
 #include <sys/ioc_dfa.h>
 
 #define HELLO_MESSAGE "Hello, DFA!\n"
@@ -22,6 +23,8 @@ static ssize_t dfa_read(devminor_t minor, u64_t position, endpoint_t endpt,
     cp_grant_id_t grant, size_t size, int flags, cdev_id_t id);
 static ssize_t dfa_write(devminor_t minor, u64_t position, endpoint_t endpt, 
     cp_grant_id_t grant, size_t size, int flags, cdev_id_t id);
+static int dfa_ioctl(devminor_t minor, unsigned long request, endpoint_t endpt,
+    cp_grant_id_t grant, int flags, endpoint_t user_endpt, cdev_id_t id);
 
 /* SEF functions and variables. */
 static void sef_local_startup(void);
@@ -34,6 +37,7 @@ static struct chardriver hello_tab =
 {
     .cdr_read	= dfa_read,
     .cdr_write  = dfa_write,
+    .cdr_ioctl  = dfa_ioctl
 };
 
 size_t min(size_t a, size_t b) {
@@ -124,6 +128,49 @@ static int lu_state_restore() {
 
     return OK;
 }
+
+static int dfa_ioctl(devminor_t minor, unsigned long request, endpoint_t endpt,
+    cp_grant_id_t grant, int flags, endpoint_t user_endpt, cdev_id_t id) {
+    int rc;
+    char buf[3];
+
+    switch (request) {
+    case DFAIOCRESET: 
+        current_state = 0;
+        rc = OK;
+        break;
+
+    case DFAIOCADD: 
+        rc = sys_safecopyfrom(endpt, grant, 0, (vir_bytes) buf, 3);
+        if (rc == OK) {
+            transition[buf[0]][buf[1]] = buf[2];
+            current_state = 0;
+        }
+        break;
+
+    case DFAIOCACCEPT: 
+        rc = sys_safecopyfrom(endpt, grant, 0, (vir_bytes) buf, 1);
+        if (rc == OK) {
+            accepting_states[buf[0]] = 1;
+            current_state = 0;
+        }
+        break;
+
+    case DFAIOCREJECT: 
+        rc = sys_safecopyfrom(endpt, grant, 0, (vir_bytes) buf, 1);
+        if (rc == OK) {
+            accepting_states[buf[0]] = 0;
+            current_state = 0;
+        }
+        break;
+
+    default:
+        rc = ENOTTY;    
+    }
+
+    return rc;
+} 
+
 
 static void sef_local_startup()
 {
