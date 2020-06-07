@@ -114,14 +114,39 @@ static ssize_t dfa_write(devminor_t UNUSED(minor), u64_t position,
 static int sef_cb_lu_state_save(int UNUSED(state)) {
 /* Save the state. */
 //    ds_publish_u32("open_counter", open_counter, DSF_OVERWRITE);
+    int rc;
+    rc = ds_publish_mem("dfa_current_state", &current_state, 1, DSF_OVERWRITE);
+    if (rc != OK) return rc;
+    rc = ds_publish_mem("dfa_accepting_states", (char*)accepting_states, CHAR_SIZE, DSF_OVERWRITE);
+    if (rc != OK) return rc;
+    rc = ds_publish_mem("dfa_transition", (char*)transition, CHAR_SIZE * CHAR_SIZE, DSF_OVERWRITE);
+    if (rc != OK) return rc;
 
     return OK;
 }
 
 static int lu_state_restore() {
 /* Restore the state. */
-    u32_t value;
+    size_t len;
+    int rc;
 
+    len = 1;
+    rc = ds_retrieve_mem("dfa_current_state", &current_state, &len);
+    if (rc != OK) return rc; 
+    rc = ds_delete_mem("dfa_current_state");
+    if (rc != OK) return rc; 
+
+    len = CHAR_SIZE;
+    rc = ds_retrieve_mem("dfa_accepting_states", (char*)accepting_states, &len);
+    if (rc != OK) return rc; 
+    rc = ds_delete_mem("dfa_accepting_states");
+    if (rc != OK) return rc; 
+
+    len = CHAR_SIZE * CHAR_SIZE;
+    rc = ds_retrieve_mem("dfa_transition", (char*)transition, &len);
+    if (rc != OK) return rc; 
+    rc = ds_delete_mem("dfa_transition");
+    if (rc != OK) return rc; 
 //    ds_retrieve_u32("open_counter", &value);
 //    ds_delete_u32("open_counter");
 //    open_counter = (int) value;
