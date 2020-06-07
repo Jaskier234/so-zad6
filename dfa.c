@@ -7,7 +7,7 @@
 
 #define HELLO_MESSAGE "Hello, DFA!\n"
 
-const int CHAR_SIZE;
+const int CHAR_SIZE = 256;
 char current_state;
 char accepting_states[CHAR_SIZE];
 char transition[CHAR_SIZE][CHAR_SIZE];
@@ -20,6 +20,8 @@ char buffer[BUF_SIZE];
  */
 static ssize_t dfa_read(devminor_t minor, u64_t position, endpoint_t endpt,
     cp_grant_id_t grant, size_t size, int flags, cdev_id_t id);
+static ssize_t dfa_write(devminor_t minor, u64_t position, endpoint_t endpt, 
+    cp_grant_id_t grant, size_t size, int flags, cdev_id_t id);
 
 /* SEF functions and variables. */
 static void sef_local_startup(void);
@@ -31,7 +33,12 @@ static int lu_state_restore(void);
 static struct chardriver hello_tab =
 {
     .cdr_read	= dfa_read,
+    .cdr_write  = dfa_write,
 };
+
+size_t min(size_t a, size_t b) {
+    return (a<b)?a:b;
+}
 
 static ssize_t dfa_read(devminor_t UNUSED(minor), u64_t position,
     endpoint_t endpt, cp_grant_id_t grant, size_t size, int UNUSED(flags),
@@ -64,8 +71,7 @@ static ssize_t dfa_read(devminor_t UNUSED(minor), u64_t position,
         int chunk = min(BUF_SIZE, size - bytes_read);
 
         /* Copy the requested part to the caller. */
-        ptr = buf + (size_t)position;
-        if ((ret = sys_safecopyto(endpt, grant, bytes_read, buffer, chunk)) != OK)
+        if ((ret = sys_safecopyto(endpt, grant, (vir_bytes)bytes_read, (vir_bytes)buffer, chunk)) != OK)
             return ret;
 
         bytes_read += chunk;
@@ -75,9 +81,35 @@ static ssize_t dfa_read(devminor_t UNUSED(minor), u64_t position,
     return size;
 }
 
+static ssize_t dfa_write(devminor_t UNUSED(minor), u64_t position,
+    endpoint_t endpt, cp_grant_id_t grant, size_t size, int UNUSED(flags),
+    cdev_id_t UNUSED(id))
+{
+    int ret;
+    int bytes_written = 0;
+
+    while (bytes_written < size) {
+        int chunk = min(BUF_SIZE, size - bytes_written);
+
+        /* Copy the requested part from the caller. */
+        if ((ret = sys_safecopyfrom(endpt, grant, (vir_bytes)bytes_written, (vir_bytes)buffer, chunk)) != OK)
+            return ret;
+        
+        /* Make transitions */
+        for (int i = 0; i < chunk; i++) {
+            current_state = transition[current_state][buffer[i]]; 
+        }
+
+        bytes_written += chunk;
+    }
+
+    /* Return the number of bytes written. */
+    return size;
+}
+
 static int sef_cb_lu_state_save(int UNUSED(state)) {
 /* Save the state. */
-    ds_publish_u32("open_counter", open_counter, DSF_OVERWRITE);
+//    ds_publish_u32("open_counter", open_counter, DSF_OVERWRITE);
 
     return OK;
 }
@@ -86,9 +118,9 @@ static int lu_state_restore() {
 /* Restore the state. */
     u32_t value;
 
-    ds_retrieve_u32("open_counter", &value);
-    ds_delete_u32("open_counter");
-    open_counter = (int) value;
+//    ds_retrieve_u32("open_counter", &value);
+//    ds_delete_u32("open_counter");
+//    open_counter = (int) value;
 
     return OK;
 }
@@ -125,7 +157,6 @@ static int sef_cb_init(int type, sef_init_info_t *UNUSED(info))
 
     int do_announce_driver = TRUE;
 
-    open_counter = 0;
     switch(type) {
         case SEF_INIT_FRESH:
             printf("%s", HELLO_MESSAGE);
